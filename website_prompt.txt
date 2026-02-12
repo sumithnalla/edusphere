@@ -1,0 +1,394 @@
+# CRITICAL: READ THE COMPLETE PROJECT PLAN PDF FIRST
+
+I have attached a PDF (phase-1_sriraj.pdf) that contains the COMPLETE specification for this EdTech platform called "Eduspace" for EAMCET exam preparation.
+
+**BEFORE YOU START CODING, READ AND UNDERSTAND:**
+- Complete database schema (10 tables)
+- All 3 phases of development
+- All 26 total pages (12 student pages + 14 admin pages)
+- Authentication flows (student magic link + admin login)
+- Payment integration with Razorpay
+- Edge Functions architecture
+
+---
+
+## PROJECT OVERVIEW
+
+**Platform:** Eduspace - EAMCET Coaching Platform
+**Purpose:** Online coaching with live classes, tests, doubt clearing, and batch management
+
+**Three Development Phases:**
+1. **Phase 1 (NOW):** 8 critical pages - Authentication + Payment + Foundation (THIS IS WHAT WE'RE BUILDING)
+2. **Phase 2 (Later):** Student dashboard sections - Classes, Tests, Profile
+3. **Phase 3 (Later):** Complete admin panel - CRUD operations, Analytics
+
+**We are building PHASE 1 ONLY right now** - the other pages will be added later.
+
+---
+
+## BACKEND ALREADY COMPLETE ✅
+
+**I have ALREADY set up:**
+
+1. **Supabase Database:**
+   - All 10 tables created with exact schema from PDF
+   - RLS (Row Level Security) policies enabled
+   - Admin user created: `edutech_sriraj@eduspace.com`
+   - Storage bucket `teacher-photos` (public access)
+
+2. **Supabase Edge Functions (5 functions deployed):**
+   - `create-razorpay-order` - Creates Razorpay payment order
+   - `verify-razorpay-payment` - Verifies payment and records in database
+   - `allot-batch` - Creates user account and sends magic link
+   - `submit-test` - Submits test and calculates score
+   - `upload-teacher-photo` - Uploads teacher photos to storage
+
+3. **Environment Variables:**
+   - Supabase URL and keys configured
+   - Razorpay test mode keys set up
+
+**Your job:** Generate ONLY the frontend Next.js code that connects to this existing backend.
+
+---
+
+## PHASE 1: BUILD THESE 8 PAGES
+
+### PUBLIC PAGES (3 pages):
+
+**1. Landing Page (`/` or `/app/page.tsx`)**
+- Fetch and display 3 batch cards from Supabase `batches` table
+- Each card shows: batch_name, cost, duration_months, features
+- "Buy Now" button links to `/payment?batch_id=X`
+- Navigation: Home, About, Courses, Contact, Login
+- Simple, clean design - functionality first
+
+**2. Payment Page (`/payment` or `/app/payment/page.tsx`)**
+- Form: Student Name, Phone (10 digits), Email
+- Display selected batch details (fetch from `batches` table using batch_id from URL)
+- Razorpay integration:
+  - Call Edge Function: `create-razorpay-order`
+  - Open Razorpay checkout
+  - On success, call: `verify-razorpay-payment`
+  - Redirect to `/payment-success?payment_id=XXX`
+
+**3. Payment Success Page (`/payment-success` or `/app/payment-success/page.tsx`)**
+- Get payment_id from URL
+- Fetch payment details from `payments` table (with batch info)
+- Display: "Thank you!", batch name, amount, payment ID
+- Message: "You will receive login details within 2 hours"
+- "Go to Home" button
+
+### STUDENT PAGES (2 pages):
+
+**4. Student Login (`/login` or `/app/login/page.tsx`)**
+- Email input field
+- "Send Magic Link" button
+- Use Supabase Auth: `supabase.auth.signInWithOtp()`
+- Redirect to `/dashboard` after clicking email link
+- Show message: "Check your email for login link"
+
+**5. Student Dashboard (`/dashboard` or `/app/dashboard/page.tsx`)**
+- **Protected route** - redirect to `/login` if not authenticated
+- Top bar: Logo, Student name, Batch badge, Logout
+- Sidebar: My Classes, Recorded Classes, Tests, Doubts (conditional), Profile
+- Main content: Welcome message with student name
+- Fetch user data with batch info from `users` table
+- Show "Doubts Classes" link ONLY if `batches.has_doubts_access = true`
+
+### ADMIN PAGES (3 pages):
+
+**6. Admin Login (`/admin/login` or `/app/admin/login/page.tsx`)**
+- Email input (default: edutech_sriraj@eduspace.com)
+- Password input
+- Use Supabase Auth: `supabase.auth.signInWithPassword()`
+- Check `user.user_metadata.role === 'admin'`
+- If admin → redirect to `/admin/dashboard`
+- If not admin → show error "Unauthorized access"
+
+**7. Admin Dashboard (`/admin/dashboard` or `/app/admin/dashboard/page.tsx`)**
+- **Protected admin route** - check role on mount
+- Top bar: Logo, "Admin Panel", Logout
+- Sidebar: Dashboard, Manage Batches, Student Payments, Allot Batches, All Students, Daily Classes, Recorded Classes, Tests, Doubts Classes, Settings
+- 4 Statistics Cards:
+  1. Total Students (count from `users` table)
+  2. Total Revenue (sum of `amount_paid` from `payments` where status='success')
+  3. Pending Allotments (count from `payments` where `access_granted=false`)
+  4. Today's Classes (count from `daily_classes` where date=today)
+
+**8. Allot Batches (`/admin/allot-batches` or `/app/admin/allot-batches/page.tsx`)**
+- **Protected admin route**
+- Form section:
+  - Email (autocomplete from pending payments)
+  - Student Name
+  - Phone
+  - Batch dropdown (from `batches` table)
+  - Payment ID (optional)
+  - "Allot Batch & Send Login" button
+- On submit: Call Edge Function `allot-batch`
+- Below form: Table of all students (from `users` table with batch info)
+- Search/filter by email or name
+
+---
+
+## TECHNICAL REQUIREMENTS
+
+**Tech Stack:**
+- Next.js 14+ with App Router (TypeScript)
+- Tailwind CSS (mandatory)
+- Supabase client (`@supabase/supabase-js`)
+- React Hook Form (optional, for form handling)
+- Lucide React or Heroicons (for icons)
+
+**Supabase Client Setup:**
+Create `/src/lib/supabase.ts`:
+```typescript
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+```
+
+**Environment Variables (already set in .env.local):**
+```
+NEXT_PUBLIC_SUPABASE_URL=https://umyulwicxxkqrbkhikdy.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGci...
+NEXT_PUBLIC_RAZORPAY_KEY_ID=rzp_test_SAxcCAqZbQLvhH
+```
+
+**Razorpay Script:**
+Add to `app/layout.tsx`:
+```typescript
+<Script
+  src="https://checkout.razorpay.com/v1/checkout.js"
+  strategy="lazyOnload"
+/>
+```
+
+---
+
+## DESIGN GUIDELINES
+
+**PRIORITY: FUNCTIONALITY OVER DESIGN**
+
+- Keep UI clean and simple
+- Use basic Tailwind styling
+- Focus on making features WORK correctly
+- Don't spend time on fancy animations or colors yet
+- Responsive design (mobile-first)
+- Loading states for all API calls
+- Error handling with clear messages
+- Form validation
+
+**We will improve design later** - right now just make it functional and clean.
+
+---
+
+## DATABASE QUERIES YOU'LL NEED
+
+I've already created all tables. Here are the main queries you'll use:
+
+**Get Active Batches:**
+```typescript
+const { data: batches } = await supabase
+  .from('batches')
+  .select('*')
+  .eq('is_active', true)
+```
+
+**Get User with Batch Info:**
+```typescript
+const { data: userData } = await supabase
+  .from('users')
+  .select('*, batches(*)')
+  .eq('user_id', user.id)
+  .single()
+```
+
+**Get Payment Details:**
+```typescript
+const { data: payment } = await supabase
+  .from('payments')
+  .select('*, batches(*)')
+  .eq('payment_id', payment_id)
+  .single()
+```
+
+**Admin Statistics:**
+```typescript
+// Total students
+const { count } = await supabase
+  .from('users')
+  .select('*', { count: 'exact', head: true })
+
+// Total revenue
+const { data: payments } = await supabase
+  .from('payments')
+  .select('amount_paid')
+  .eq('payment_status', 'success')
+const total = payments.reduce((sum, p) => sum + p.amount_paid, 0)
+```
+
+---
+
+## EDGE FUNCTION CALLS
+
+**Create Razorpay Order:**
+```typescript
+const { data } = await supabase.functions.invoke('create-razorpay-order', {
+  body: { batch_id, student_name, email, phone, amount }
+})
+```
+
+**Verify Payment:**
+```typescript
+const { data } = await supabase.functions.invoke('verify-razorpay-payment', {
+  body: {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+    student_name,
+    email,
+    phone,
+    batch_id,
+    amount
+  }
+})
+```
+
+**Allot Batch:**
+```typescript
+const { data } = await supabase.functions.invoke('allot-batch', {
+  body: { email, batch_id, student_name, phone, payment_id }
+})
+```
+
+---
+
+## AUTHENTICATION PATTERNS
+
+**Student Magic Link Login:**
+```typescript
+const { error } = await supabase.auth.signInWithOtp({
+  email,
+  options: {
+    emailRedirectTo: `${window.location.origin}/dashboard`
+  }
+})
+```
+
+**Admin Email/Password Login:**
+```typescript
+const { data, error } = await supabase.auth.signInWithPassword({
+  email,
+  password
+})
+
+if (data.user.user_metadata.role !== 'admin') {
+  // Unauthorized
+}
+```
+
+**Protected Route Pattern:**
+```typescript
+useEffect(() => {
+  supabase.auth.getUser().then(({ data: { user } }) => {
+    if (!user) router.push('/login')
+  })
+}, [])
+```
+
+**Logout:**
+```typescript
+await supabase.auth.signOut()
+router.push('/login')
+```
+
+---
+
+## CRITICAL REQUIREMENTS
+
+1. **All pages must be Server Components where possible** (Next.js 14 best practice)
+2. **Use 'use client' ONLY when needed** (forms, state, useEffect)
+3. **Proper TypeScript types** for all data
+4. **Error handling** - try/catch for all API calls
+5. **Loading states** - show spinners during operations
+6. **Form validation** - validate before submitting
+7. **Responsive design** - mobile, tablet, desktop
+8. **No hardcoded data** - everything from Supabase
+
+---
+
+## WHAT TO GENERATE
+
+Please generate:
+
+1. **Complete Next.js 14 project structure**
+2. **All 8 page files** (with proper routing)
+3. **Supabase client setup** (`lib/supabase.ts`)
+4. **Shared components** (Navbar, Sidebar, etc.)
+5. **TypeScript types** for database tables
+6. **Error boundaries** (optional)
+7. **Loading components** (optional)
+
+**DO NOT generate:**
+- Database migrations (already done)
+- Edge Functions code (already deployed)
+- Environment variable files (already created)
+
+---
+
+## FILE STRUCTURE TO CREATE
+```
+src/
+├── app/
+│   ├── page.tsx                    # Landing page
+│   ├── layout.tsx                  # Root layout (add Razorpay script here)
+│   ├── payment/
+│   │   └── page.tsx
+│   ├── payment-success/
+│   │   └── page.tsx
+│   ├── login/
+│   │   └── page.tsx
+│   ├── dashboard/
+│   │   └── page.tsx
+│   └── admin/
+│       ├── login/
+│       │   └── page.tsx
+│       ├── dashboard/
+│       │   └── page.tsx
+│       └── allot-batches/
+│           └── page.tsx
+├── components/
+│   ├── Navbar.tsx
+│   ├── Sidebar.tsx
+│   ├── AdminSidebar.tsx
+│   ├── CourseCard.tsx
+│   └── ui/
+│       ├── Button.tsx
+│       ├── Input.tsx
+│       └── Card.tsx
+├── lib/
+│   └── supabase.ts
+└── types/
+    └── database.types.ts
+```
+
+---
+
+## START WITH PAGE 1 (LANDING PAGE)
+
+Generate the landing page first, then we'll build the rest one by one.
+
+**Landing page must:**
+- Fetch batches from Supabase
+- Display 3 course cards
+- Have navigation bar
+- "Buy Now" buttons with correct links
+- Be responsive
+- Show loading state while fetching
+
+Focus on clean, working code. Design improvements come later.
+
+Let's start!

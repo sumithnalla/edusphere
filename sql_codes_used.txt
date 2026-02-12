@@ -1,0 +1,425 @@
+-- ============================================
+-- EDUSPACE EAMCET PLATFORM - SUPABASE SETUP
+-- ============================================
+-- Run this entire script in Supabase SQL Editor
+-- Order matters: Tables first, then RLS policies
+-- ============================================
+
+-- ============================================
+-- STEP 1: CREATE ALL TABLES
+-- ============================================
+
+-- TABLE 1: batches
+CREATE TABLE batches (
+  batch_id SERIAL PRIMARY KEY,
+  batch_name TEXT NOT NULL CHECK (batch_name IN ('rankers', 'sadhana', 'lakshya')),
+  cost INTEGER NOT NULL CHECK (cost IN (999, 1999, 3999)),
+  duration_months INTEGER NOT NULL CHECK (duration_months IN (6, 12, 18)),
+  features TEXT NOT NULL,
+  has_doubts_access BOOLEAN DEFAULT false,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed initial batches
+INSERT INTO batches (batch_name, cost, duration_months, features, has_doubts_access)
+VALUES
+  ('rankers', 999, 6, 'Live classes, Tests, Recordings', false),
+  ('sadhana', 1999, 12, 'Live classes, Tests, Recordings, Study Material', false),
+  ('lakshya', 3999, 18, 'Live classes, Tests, Recordings, Study Material, Doubts Classes, Personal Mentorship', true);
+
+-- TABLE 2: payments
+CREATE TABLE payments (
+  payment_id SERIAL PRIMARY KEY,
+  student_name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  email TEXT NOT NULL,
+  batch_id INTEGER REFERENCES batches(batch_id),
+  amount_paid INTEGER NOT NULL,
+  razorpay_payment_id TEXT,
+  razorpay_order_id TEXT,
+  payment_status TEXT DEFAULT 'pending' CHECK (payment_status IN ('success', 'pending', 'failed')),
+  payment_date TIMESTAMPTZ DEFAULT NOW(),
+  access_granted BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- TABLE 3: users
+CREATE TABLE users (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT UNIQUE NOT NULL,
+  student_name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  batch_id INTEGER REFERENCES batches(batch_id),
+  payment_id INTEGER REFERENCES payments(payment_id),
+  youtube_channel_added BOOLEAN DEFAULT false,
+  account_status TEXT DEFAULT 'active' CHECK (account_status IN ('active', 'suspended')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  last_login TIMESTAMPTZ
+);
+
+-- TABLE 4: daily_classes
+CREATE TABLE daily_classes (
+  class_id SERIAL PRIMARY KEY,
+  date DATE NOT NULL,
+  subject TEXT NOT NULL CHECK (subject IN ('maths', 'physics', 'chemistry')),
+  teacher_name TEXT NOT NULL,
+  teacher_photo_url TEXT,
+  class_title TEXT NOT NULL,
+  duration TEXT NOT NULL,
+  youtube_live_link TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- TABLE 5: recorded_classes
+CREATE TABLE recorded_classes (
+  recording_id SERIAL PRIMARY KEY,
+  date DATE NOT NULL,
+  subject TEXT NOT NULL CHECK (subject IN ('maths', 'physics', 'chemistry')),
+  teacher_name TEXT NOT NULL,
+  teacher_photo_url TEXT,
+  class_title TEXT NOT NULL,
+  duration TEXT NOT NULL,
+  youtube_video_link TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- TABLE 6: exams
+CREATE TABLE exams (
+  exam_id SERIAL PRIMARY KEY,
+  exam_name TEXT NOT NULL,
+  total_questions INTEGER DEFAULT 160,
+  duration_minutes INTEGER DEFAULT 180,
+  maths_questions INTEGER DEFAULT 80,
+  physics_questions INTEGER DEFAULT 40,
+  chemistry_questions INTEGER DEFAULT 40,
+  conducted_date DATE NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- TABLE 7: questions
+CREATE TABLE questions (
+  question_id SERIAL PRIMARY KEY,
+  exam_id INTEGER REFERENCES exams(exam_id) ON DELETE CASCADE,
+  subject TEXT NOT NULL CHECK (subject IN ('maths', 'physics', 'chemistry')),
+  question_number INTEGER NOT NULL,
+  question_text TEXT NOT NULL,
+  option_a TEXT NOT NULL,
+  option_b TEXT NOT NULL,
+  option_c TEXT NOT NULL,
+  option_d TEXT NOT NULL,
+  correct_option TEXT NOT NULL CHECK (correct_option IN ('A', 'B', 'C', 'D')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(exam_id, question_number)
+);
+
+-- TABLE 8: student_responses
+CREATE TABLE student_responses (
+  response_id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+  question_id INTEGER REFERENCES questions(question_id) ON DELETE CASCADE,
+  selected_option TEXT CHECK (selected_option IN ('A', 'B', 'C', 'D')),
+  is_correct BOOLEAN,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, question_id)
+);
+
+-- TABLE 9: exam_attempts
+CREATE TABLE exam_attempts (
+  attempt_id SERIAL PRIMARY KEY,
+  user_id UUID REFERENCES users(user_id) ON DELETE CASCADE,
+  exam_id INTEGER REFERENCES exams(exam_id) ON DELETE CASCADE,
+  score INTEGER NOT NULL,
+  total_questions INTEGER DEFAULT 160,
+  correct_answers INTEGER NOT NULL,
+  wrong_answers INTEGER NOT NULL,
+  unanswered INTEGER NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL,
+  submitted_at TIMESTAMPTZ NOT NULL,
+  time_taken_minutes INTEGER NOT NULL,
+  UNIQUE(user_id, exam_id)
+);
+
+-- TABLE 10: doubts_classes
+CREATE TABLE doubts_classes (
+  doubts_class_id SERIAL PRIMARY KEY,
+  date DATE NOT NULL,
+  subject TEXT NOT NULL CHECK (subject IN ('maths', 'physics', 'chemistry', 'general')),
+  teacher_name TEXT NOT NULL,
+  class_title TEXT NOT NULL,
+  time_slot TEXT NOT NULL,
+  google_meet_link TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
+-- STEP 2: CREATE INDEXES FOR PERFORMANCE
+-- ============================================
+
+-- Indexes for frequently queried columns
+CREATE INDEX idx_payments_email ON payments(email);
+CREATE INDEX idx_payments_status ON payments(payment_status);
+CREATE INDEX idx_payments_access_granted ON payments(access_granted);
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_batch_id ON users(batch_id);
+CREATE INDEX idx_daily_classes_date ON daily_classes(date);
+CREATE INDEX idx_recorded_classes_date ON recorded_classes(date);
+CREATE INDEX idx_questions_exam_id ON questions(exam_id);
+CREATE INDEX idx_student_responses_user_id ON student_responses(user_id);
+CREATE INDEX idx_exam_attempts_user_id ON exam_attempts(user_id);
+CREATE INDEX idx_doubts_classes_date ON doubts_classes(date);
+
+-- ============================================
+-- STEP 3: ENABLE ROW LEVEL SECURITY (RLS)
+-- ============================================
+
+ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_classes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recorded_classes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE questions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_responses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exam_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE doubts_classes ENABLE ROW LEVEL SECURITY;
+
+-- ============================================
+-- STEP 4: CREATE RLS POLICIES
+-- ============================================
+
+-- Batches: Anyone can view active batches (public access for landing page)
+CREATE POLICY "Anyone can view active batches" 
+  ON batches 
+  FOR SELECT 
+  USING (is_active = true);
+
+-- Payments: Users can view their own payments
+CREATE POLICY "Users can view own payments" 
+  ON payments 
+  FOR SELECT 
+  USING (email = auth.jwt() ->> 'email');
+
+-- Payments: Service role can insert (for Razorpay webhook)
+CREATE POLICY "Service role can insert payments" 
+  ON payments 
+  FOR INSERT 
+  WITH CHECK (true);
+
+-- Users: Students can view their own profile
+CREATE POLICY "Users view own profile" 
+  ON users 
+  FOR SELECT 
+  USING (user_id = auth.uid());
+
+-- Users: Service role can insert (for batch allotment)
+CREATE POLICY "Service role can insert users" 
+  ON users 
+  FOR INSERT 
+  WITH CHECK (true);
+
+-- Users: Users can update their own last_login
+CREATE POLICY "Users can update own last_login" 
+  ON users 
+  FOR UPDATE 
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+
+-- Daily Classes: Authenticated students can view active classes
+CREATE POLICY "Auth users view daily classes" 
+  ON daily_classes 
+  FOR SELECT 
+  USING (
+    auth.role() = 'authenticated' AND 
+    is_active = true
+  );
+
+-- Recorded Classes: Authenticated students can view active recordings
+CREATE POLICY "Auth users view recorded classes" 
+  ON recorded_classes 
+  FOR SELECT 
+  USING (
+    auth.role() = 'authenticated' AND 
+    is_active = true
+  );
+
+-- Exams: Authenticated students can view active exams
+CREATE POLICY "Auth users view exams" 
+  ON exams 
+  FOR SELECT 
+  USING (
+    auth.role() = 'authenticated' AND 
+    is_active = true
+  );
+
+-- Questions: Authenticated students can view questions
+CREATE POLICY "Auth users view questions" 
+  ON questions 
+  FOR SELECT 
+  USING (auth.role() = 'authenticated');
+
+-- Student Responses: Students can view their own responses
+CREATE POLICY "Students view own responses" 
+  ON student_responses 
+  FOR SELECT 
+  USING (user_id = auth.uid());
+
+-- Student Responses: Students can insert their own responses
+CREATE POLICY "Students insert own responses" 
+  ON student_responses 
+  FOR INSERT 
+  WITH CHECK (user_id = auth.uid());
+
+-- Student Responses: Students can update their own responses
+CREATE POLICY "Students update own responses" 
+  ON student_responses 
+  FOR UPDATE 
+  USING (user_id = auth.uid())
+  WITH CHECK (user_id = auth.uid());
+
+-- Exam Attempts: Students can view their own attempts
+CREATE POLICY "Students view own attempts" 
+  ON exam_attempts 
+  FOR SELECT 
+  USING (user_id = auth.uid());
+
+-- Exam Attempts: Service role can manage attempts (for test submission)
+CREATE POLICY "Service role manages attempts" 
+  ON exam_attempts 
+  FOR ALL 
+  USING (true);
+
+-- Doubts Classes: Only Lakshya batch students can view
+CREATE POLICY "Lakshya batch sees doubts" 
+  ON doubts_classes 
+  FOR SELECT 
+  USING (
+    auth.role() = 'authenticated' AND 
+    is_active = true AND
+    EXISTS (
+      SELECT 1 
+      FROM users u 
+      JOIN batches b ON u.batch_id = b.batch_id
+      WHERE u.user_id = auth.uid() AND b.has_doubts_access = true
+    )
+  );
+
+-- ============================================
+-- STEP 5: CREATE HELPFUL VIEWS (Optional)
+-- ============================================
+
+-- View for admin to see student details with batch info
+CREATE OR REPLACE VIEW admin_students_view AS
+SELECT 
+  u.user_id,
+  u.student_name,
+  u.email,
+  u.phone,
+  u.account_status,
+  u.youtube_channel_added,
+  u.created_at,
+  u.last_login,
+  b.batch_name,
+  b.cost,
+  b.duration_months,
+  p.payment_id,
+  p.amount_paid,
+  p.payment_date
+FROM users u
+LEFT JOIN batches b ON u.batch_id = b.batch_id
+LEFT JOIN payments p ON u.payment_id = p.payment_id;
+
+-- View for pending payment allotments
+CREATE OR REPLACE VIEW pending_allotments_view AS
+SELECT 
+  payment_id,
+  student_name,
+  phone,
+  email,
+  batch_id,
+  amount_paid,
+  payment_date
+FROM payments
+WHERE payment_status = 'success' AND access_granted = false
+ORDER BY payment_date DESC;
+
+-- ============================================
+-- STEP 6: CREATE FUNCTIONS (Optional Helpers)
+-- ============================================
+
+-- Function to update last_login timestamp
+CREATE OR REPLACE FUNCTION update_last_login()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE users
+  SET last_login = NOW()
+  WHERE user_id = NEW.id;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger to update last_login on auth
+-- Note: This requires auth.users access, may need adjustment
+-- CREATE TRIGGER on_auth_login
+--   AFTER UPDATE ON auth.users
+--   FOR EACH ROW
+--   WHEN (OLD.last_sign_in_at IS DISTINCT FROM NEW.last_sign_in_at)
+--   EXECUTE FUNCTION update_last_login();
+
+-- ============================================
+-- STEP 7: GRANT PERMISSIONS
+-- ============================================
+
+-- Grant authenticated users access to their data
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT USAGE ON SCHEMA public TO anon;
+
+-- Grant access to sequences for insert operations
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+-- ============================================
+-- VERIFICATION QUERIES
+-- ============================================
+
+-- Check if all tables exist
+SELECT table_name 
+FROM information_schema.tables 
+WHERE table_schema = 'public' 
+AND table_type = 'BASE TABLE'
+ORDER BY table_name;
+
+-- Check if RLS is enabled
+SELECT schemaname, tablename, rowsecurity 
+FROM pg_tables 
+WHERE schemaname = 'public'
+ORDER BY tablename;
+
+-- Check batches seeded correctly
+SELECT * FROM batches;
+
+-- Check policies exist
+SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual 
+FROM pg_policies 
+WHERE schemaname = 'public'
+ORDER BY tablename, policyname;
+
+-- ============================================
+-- SETUP COMPLETE! 
+-- ============================================
+-- Next steps:
+-- 1. Create admin user in Supabase Auth Dashboard
+--    Email: edutech_sriraj@eduspace.com
+--    Password: decode@Sriraj2026
+--    User Metadata: {"role": "admin"}
+--
+-- 2. Create Storage bucket: 'teacher-photos' (public)
+--
+-- 3. Deploy Edge Functions
+--
+-- 4. Set up environment variables in your app
+-- ============================================

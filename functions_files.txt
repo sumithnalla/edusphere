@@ -1,0 +1,569 @@
+// supabase/functions/create-razorpay-order/index.ts
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+
+const RAZORPAY_KEY_ID = Deno.env.get('RAZORPAY_KEY_ID') || 'rzp_test_dummy'
+const RAZORPAY_KEY_SECRET = Deno.env.get('RAZORPAY_KEY_SECRET') || 'test_secret'
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { 
+      headers: { 
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      } 
+    })
+  }
+
+  try {
+    const { batch_id, student_name, email, phone, amount } = await req.json()
+
+    // Validate input
+    if (!batch_id || !student_name || !email || !phone || !amount) {
+      throw new Error('Missing required fields')
+    }
+
+    // Create Razorpay order
+    const auth = btoa(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`)
+    const razorpayResponse = await fetch('https://api.razorpay.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        amount: amount * 100, // Convert to paise
+        currency: 'INR',
+        receipt: `order_${Date.now()}`,
+        notes: { batch_id, student_name, email, phone }
+      })
+    })
+
+    if (!razorpayResponse.ok) {
+      const errorData = await razorpayResponse.json()
+      throw new Error(`Razorpay API error: ${errorData.error?.description || 'Unknown error'}`)
+    }
+
+    const order = await razorpayResponse.json()
+
+    return new Response(
+      JSON.stringify({ 
+        success: true,
+        order_id: order.id, 
+        key_id: RAZORPAY_KEY_ID,
+        amount: order.amount,
+        currency: order.currency
+      }),
+      { 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  } catch (error) {
+    console.error('Create order error:', error)
+    return new Response(
+      JSON.stringify({ 
+        success: false,
+        error: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  }
+})
+
+// supabase/functions/verify-razorpay-payment/index.ts
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const RAZORPAY_KEY_SECRET = Deno.env.get('RAZORPAY_KEY_SECRET') || 'test_secret'
+const URL = Deno.env.get('URL')!
+const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')!
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { 
+      headers: { 
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      } 
+    })
+  }
+
+  try {
+    const { 
+      razorpay_order_id, 
+      razorpay_payment_id, 
+      razorpay_signature,
+      student_name,
+      email,
+      phone,
+      batch_id,
+      amount
+    } = await req.json()
+
+    // Validate input
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      throw new Error('Missing payment verification data')
+    }
+
+    // Verify signature
+    const crypto = await import('https://deno.land/std@0.168.0/node/crypto.ts')
+    const hmac = crypto.createHmac('sha256', RAZORPAY_KEY_SECRET)
+    hmac.update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    const generated_signature = hmac.digest('hex')
+
+    if (generated_signature !== razorpay_signature) {
+      console.error('Signature mismatch:', {
+        generated: generated_signature,
+        received: razorpay_signature
+      })
+      throw new Error('Invalid payment signature - payment verification failed')
+    }
+
+    // Signature verified - Insert into payments table using service role
+    const supabase = createClient(URL, SERVICE_ROLE_KEY)
+    
+    const { data, error } = await supabase
+      .from('payments')
+      .insert({
+        student_name,
+        phone,
+        email,
+        batch_id: parseInt(batch_id),
+        amount_paid: parseInt(amount),
+        razorpay_payment_id,
+        razorpay_order_id,
+        payment_status: 'success',
+        payment_date: new Date().toISOString()
+      })
+      .select()
+      .single()
+
+    if (error) {
+      console.error('Database error:', error)
+      throw new Error(`Failed to record payment: ${error.message}`)
+    }
+
+    console.log('Payment recorded successfully:', data.payment_id)
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        payment_id: data.payment_id,
+        message: 'Payment verified and recorded successfully'
+      }),
+      { 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  } catch (error) {
+    console.error('Payment verification error:', error)
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  }
+})
+
+
+// supabase/functions/allot-batch/index.ts
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const URL = Deno.env.get('URL')!
+const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')!
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { 
+      headers: { 
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      } 
+    })
+  }
+
+  try {
+    const { email, batch_id, student_name, phone, payment_id } = await req.json()
+
+    // Validate input
+    if (!email || !batch_id || !student_name || !phone) {
+      throw new Error('Missing required fields')
+    }
+
+    const supabase = createClient(URL, SERVICE_ROLE_KEY, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+
+    // Check if user already exists
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('user_id')
+      .eq('email', email)
+      .single()
+
+    if (existingUser) {
+      throw new Error('User already exists with this email')
+    }
+
+    // Create user in Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      email_confirm: true,
+      user_metadata: { role: 'student' }
+    })
+
+    if (authError) {
+      console.error('Auth error:', authError)
+      throw new Error(`Failed to create user account: ${authError.message}`)
+    }
+
+    console.log('User created in auth:', authData.user.id)
+
+    // Insert into users table
+    const { error: userError } = await supabase
+      .from('users')
+      .insert({
+        user_id: authData.user.id,
+        email,
+        student_name,
+        phone,
+        batch_id: parseInt(batch_id),
+        payment_id: payment_id ? parseInt(payment_id) : null
+      })
+
+    if (userError) {
+      console.error('User insert error:', userError)
+      // Rollback: Delete the auth user if database insert fails
+      await supabase.auth.admin.deleteUser(authData.user.id)
+      throw new Error(`Failed to create user profile: ${userError.message}`)
+    }
+
+    // Update payment record if payment_id provided
+    if (payment_id) {
+      await supabase
+        .from('payments')
+        .update({ access_granted: true })
+        .eq('payment_id', parseInt(payment_id))
+    }
+
+    // Generate and send magic link
+    const { data: linkData, error: magicLinkError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email,
+      options: {
+        redirectTo: `${req.headers.get('origin') || 'http://localhost:3000'}/dashboard`
+      }
+    })
+
+    if (magicLinkError) {
+      console.error('Magic link error:', magicLinkError)
+      // Don't throw - user is created, just log the error
+    } else {
+      console.log('Magic link generated:', linkData.properties.action_link)
+    }
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        user_id: authData.user.id,
+        message: 'Batch allotted successfully. Magic link sent to student email.',
+        magic_link: linkData?.properties?.action_link // For testing
+      }),
+      { 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  } catch (error) {
+    console.error('Allot batch error:', error)
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  }
+})
+
+
+// supabase/functions/submit-test/index.ts
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const URL = Deno.env.get('URL')!
+const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')!
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { 
+      headers: { 
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      } 
+    })
+  }
+
+  try {
+    const { user_id, exam_id, responses, started_at } = await req.json()
+    // responses format: [{ question_id, selected_option }, ...]
+
+    // Validate input
+    if (!user_id || !exam_id || !responses || !started_at) {
+      throw new Error('Missing required fields')
+    }
+
+    const supabase = createClient(URL, SERVICE_ROLE_KEY)
+
+    // Get correct answers for this exam
+    const { data: questions, error: questionsError } = await supabase
+      .from('questions')
+      .select('question_id, correct_option')
+      .eq('exam_id', exam_id)
+
+    if (questionsError) {
+      console.error('Questions fetch error:', questionsError)
+      throw new Error(`Failed to fetch questions: ${questionsError.message}`)
+    }
+
+    if (!questions || questions.length === 0) {
+      throw new Error('No questions found for this exam')
+    }
+
+    // Calculate score
+    let correct = 0, wrong = 0, unanswered = 0
+    const responsesMap = new Map(responses.map(r => [r.question_id, r.selected_option]))
+    
+    const studentResponses = questions.map(q => {
+      const selected = responsesMap.get(q.question_id)
+      const is_correct = selected ? selected === q.correct_option : false
+      
+      if (!selected) {
+        unanswered++
+      } else if (is_correct) {
+        correct++
+      } else {
+        wrong++
+      }
+
+      return {
+        user_id,
+        question_id: q.question_id,
+        selected_option: selected || null,
+        is_correct
+      }
+    })
+
+    // Bulk upsert student responses
+    const { error: responsesError } = await supabase
+      .from('student_responses')
+      .upsert(studentResponses, { onConflict: 'user_id,question_id' })
+
+    if (responsesError) {
+      console.error('Responses upsert error:', responsesError)
+      throw new Error(`Failed to save responses: ${responsesError.message}`)
+    }
+
+    // Calculate time taken
+    const submitted_at = new Date()
+    const started_time = new Date(started_at)
+    const time_taken = Math.floor((submitted_at.getTime() - started_time.getTime()) / 60000) // minutes
+
+    // Insert/Update exam attempt
+    const { data: attempt, error: attemptError } = await supabase
+      .from('exam_attempts')
+      .upsert({
+        user_id,
+        exam_id,
+        score: correct,
+        total_questions: questions.length,
+        correct_answers: correct,
+        wrong_answers: wrong,
+        unanswered,
+        started_at,
+        submitted_at: submitted_at.toISOString(),
+        time_taken_minutes: time_taken
+      }, { onConflict: 'user_id,exam_id' })
+      .select()
+      .single()
+
+    if (attemptError) {
+      console.error('Exam attempt error:', attemptError)
+      throw new Error(`Failed to record exam attempt: ${attemptError.message}`)
+    }
+
+    console.log('Test submitted successfully:', {
+      user_id,
+      exam_id,
+      score: correct,
+      total: questions.length
+    })
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        score: correct,
+        total_questions: questions.length,
+        correct,
+        wrong,
+        unanswered,
+        time_taken_minutes: time_taken,
+        message: 'Test submitted successfully'
+      }),
+      { 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  } catch (error) {
+    console.error('Submit test error:', error)
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  }
+})
+
+// supabase/functions/upload-teacher-photo/index.ts
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+
+const URL = Deno.env.get('URL')!
+const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')!
+
+serve(async (req) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { 
+      headers: { 
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+      } 
+    })
+  }
+
+  try {
+    const { file_base64, file_name, content_type } = await req.json()
+
+    // Validate input
+    if (!file_base64 || !file_name) {
+      throw new Error('Missing file data or filename')
+    }
+
+    const supabase = createClient(URL, SERVICE_ROLE_KEY)
+
+    // Decode base64
+    const file_data = Uint8Array.from(atob(file_base64), c => c.charCodeAt(0))
+
+    // Generate unique filename
+    const timestamp = Date.now()
+    const sanitized_name = file_name.replace(/[^a-zA-Z0-9.-]/g, '_')
+    const file_path = `teacher-photos/${timestamp}_${sanitized_name}`
+
+    // Upload to storage
+    const { data, error } = await supabase.storage
+      .from('teacher-photos')
+      .upload(file_path, file_data, {
+        contentType: content_type || 'image/jpeg',
+        upsert: false
+      })
+
+    if (error) {
+      console.error('Storage upload error:', error)
+      throw new Error(`Failed to upload file: ${error.message}`)
+    }
+
+    // Get public URL
+    const { data: publicURL } = supabase.storage
+      .from('teacher-photos')
+      .getPublicUrl(file_path)
+
+    console.log('File uploaded successfully:', publicURL.publicUrl)
+
+    return new Response(
+      JSON.stringify({ 
+        success: true, 
+        url: publicURL.publicUrl,
+        path: file_path,
+        message: 'Photo uploaded successfully'
+      }),
+      { 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  } catch (error) {
+    console.error('Upload photo error:', error)
+    return new Response(
+      JSON.stringify({ 
+        success: false, 
+        error: error.message 
+      }),
+      { 
+        status: 500, 
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Access-Control-Allow-Origin': '*' 
+        } 
+      }
+    )
+  }
+})

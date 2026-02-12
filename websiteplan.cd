@@ -1,0 +1,609 @@
+TABLE 1: batches ⭐ 
+Columns:
+- batch_id (PRIMARY KEY, auto-increment)
+- batch_name (rankers/sandana/lakshya)
+- cost (999/1999/3999)
+- duration_months (6/12/18)
+- features (JSON or text - "Live classes, Tests, Recordings" etc)
+- has_doubts_access (boolean - true only for lakshya)
+- is_active (boolean - for future batches)
+- created_at
+Where it's used:
+Admin Panel: "Manage Batches" page - Add/Edit batch details
+Landing Page: Course cards - Fetch batch name, cost, features
+Admin Panel: "Allot Batches" dropdown - Select which batch to assign
+Student Dashboard: Profile section - Show batch name, duration
+
+TABLE 2: payments
+Columns:
+- payment_id (PRIMARY KEY, auto-increment)
+- student_name
+- phone
+- email
+- batch_id (FOREIGN KEY → batches.batch_id)
+- amount_paid
+- razorpay_payment_id
+- razorpay_order_id
+- payment_status (success/pending/failed)
+- payment_date
+- access_granted (boolean - false until admin allots batch)
+- created_at
+Admin Panel - Submits to this table:
+NONE (Razorpay automatically inserts after payment)
+Admin Panel - Fetches from this table:
+Page: "Student Payments"
+Displays: All columns except razorpay internal IDs
+Actions: View payment details, Mark as "Access Granted"
+Website - Submits to this table:
+Page: Payment page (before Razorpay)
+Inserts: student_name, phone, email, batch_id (from form)
+
+TABLE 3: users
+Columns:
+- user_id (PRIMARY KEY, UUID from Supabase Auth)
+- email (UNIQUE)
+- student_name
+- phone
+- batch_id (FOREIGN KEY → batches.batch_id)
+- payment_id (FOREIGN KEY → payments.payment_id)
+- youtube_channel_added (boolean)
+- account_status (active/suspended)
+- created_at
+- last_login
+Admin Panel - Submits to this table:
+Page: "Allot Batches"
+Inputs: Email (from form), batch_id (dropdown from batches table)
+Action: Creates user in Supabase Auth + Inserts row here + Sends magic link
+Admin Panel - Fetches from this table:
+Page: "All Students"
+Displays: All student details with batch name (JOIN with batches table)
+Website - Fetches from this table:
+Page: Profile section
+Displays: student_name, phone, email, batch details (JOIN batches)
+Page: Dashboard (to check batch_id for doubts access)
+
+TABLE 4: daily_classes
+Columns:
+- class_id (PRIMARY KEY, auto-increment)
+- date (DATE - 2026-01-28)
+- subject (maths/physics/chemistry)
+- teacher_name
+- teacher_photo_url (Supabase Storage URL)
+- class_title
+- duration (e.g., "60 mins")
+- youtube_live_link
+- is_active (boolean - to hide/show)
+- created_at
+Admin Panel - Submits to this table:
+Page: "Daily Classes"
+Inputs:
+Date (date picker)
+Subject (dropdown: Maths/Physics/Chemistry)
+Teacher name (text input)
+Teacher photo (file upload → Supabase Storage)
+Class title (text input)
+Duration (text input)
+YouTube live link (URL input)
+Action: INSERT new row
+Admin Panel - Fetches from this table:
+Page: "Daily Classes"
+Displays: List of all daily classes with Edit/Delete options
+Website - Fetches from this table:
+Page: "My Classes" section
+Query: SELECT * FROM daily_classes WHERE date = TODAY() AND is_active = true
+Displays: 3 cards (Maths, Physics, Chemistry) with teacher photo, class title, duration, "Attend Class" button
+
+TABLE 5: recorded_classes
+Columns:
+- recording_id (PRIMARY KEY, auto-increment)
+- date (DATE)
+- subject (maths/physics/chemistry)
+- teacher_name
+- teacher_photo_url
+- class_title
+- duration
+- youtube_video_link
+- is_active (boolean)
+- created_at
+Admin Panel - Submits to this table:
+Page: "Recorded Classes"
+Inputs: Same as daily_classes but with YouTube video link instead of live link
+Action: INSERT new row
+Admin Panel - Fetches from this table:
+Page: "Recorded Classes"
+Displays: List with Edit/Delete options
+Website - Fetches from this table:
+Page: "Recorded Classes" section
+Filter: Date picker (student selects date)
+Query: SELECT * FROM recorded_classes WHERE date = SELECTED_DATE AND is_active = true
+Displays: 3 cards for that date
+
+TABLE 6: exams
+Columns:
+- exam_id (PRIMARY KEY, auto-increment)
+- exam_name (e.g., "Mock Test 1", "EAMCET Practice 2")
+- total_questions (160)
+- duration_minutes (180)
+- maths_questions (80)
+- physics_questions (40)
+- chemistry_questions (40)
+- conducted_date (DATE - when exam is scheduled)
+- is_active (boolean)
+- created_at
+Admin Panel - Submits to this table:
+Page: "Tests" → "Create New Test"
+Inputs:
+Exam name (text)
+Total questions (default 160)
+Duration (default 180)
+Subject-wise breakdown (80, 40, 40)
+Conducted date (date picker)
+Action: INSERT new exam
+Admin Panel - Fetches from this table:
+Page: "Tests"
+Displays: List of all exams with "Add Questions" and "View Results" buttons
+Website - Fetches from this table:
+Page: "Tests" section
+Displays: List of available tests with exam name, date, duration, Attempt/Retake/View Result buttons
+
+TABLE 7: questions
+Columns:
+- question_id (PRIMARY KEY, auto-increment)
+- exam_id (FOREIGN KEY → exams.exam_id)
+- subject (maths/physics/chemistry)
+- question_number (1-160, for ordering within exam)
+- question_text
+- option_a
+- option_b
+- option_c
+- option_d
+- correct_option (A/B/C/D)
+- created_at
+Total Rows: 10 exams × 160 questions = 1,600 rows
+Admin Panel - Submits to this table:
+Page: "Tests" → "Add Questions" (for specific exam)
+Options:
+Option 1: Bulk upload CSV (recommended for 160 questions)
+Option 2: Form with 160 question inputs (tedious!)
+CSV Format: exam_id, subject, question_number, question_text, option_a, option_b, option_c, option_d, correct_option
+Action: Bulk INSERT 160 rows
+Admin Panel - Fetches from this table:
+Page: "Tests" → "View/Edit Questions" for specific exam
+Displays: All 160 questions with Edit/Delete options
+Website - Fetches from this table:
+Page: Test attempt page (when student clicks "Attempt" or "Retake")
+Query: SELECT * FROM questions WHERE exam_id = X ORDER BY RANDOM() (shuffled within subjects)
+Note: Shuffle in code to keep Maths 1-80, Physics 81-120, Chemistry 121-160
+
+TABLE 8: student_responses
+Columns:
+- response_id (PRIMARY KEY, auto-increment) [optional, for tracking]
+- user_id (FOREIGN KEY → users.user_id)
+- question_id (FOREIGN KEY → questions.question_id)
+- selected_option (A/B/C/D or NULL if unanswered)
+- is_correct (boolean - calculated on submit)
+
+COMPOSITE UNIQUE KEY: (user_id, question_id) ← One answer per student per question
+Admin Panel - Does NOT interact with this table directly
+Website - Submits to this table:
+Page: Test attempt page
+When: Student selects an option
+Action:
+First attempt → INSERT
+Change answer → UPDATE
+Retake exam → UPDATE all 160 rows
+Auto-save: Every 30 seconds or on option change
+Website - Fetches from this table:
+Page: "View Result" page
+Query: SELECT sr.*, q.* FROM student_responses sr JOIN questions q ON sr.question_id = q.question_id WHERE sr.user_id = CURRENT_USER AND q.exam_id = X
+Displays: Each question with student's selected answer and correct answer
+
+TABLE 9: exam_attempts
+Columns:
+- attempt_id (PRIMARY KEY, auto-increment)
+- user_id (FOREIGN KEY → users.user_id)
+- exam_id (FOREIGN KEY → exams.exam_id)
+- score (0-160)
+- total_questions (160)
+- correct_answers (calculated)
+- wrong_answers (calculated)
+- unanswered (calculated)
+- started_at (timestamp - when student clicked "Attempt")
+- submitted_at (timestamp - when test was submitted/auto-submitted)
+- time_taken_minutes (calculated)
+
+COMPOSITE UNIQUE KEY: (user_id, exam_id)
+Admin Panel - Fetches from this table:
+Page: "Test Results" (for specific exam)
+Displays: List of all students who attempted exam with scores
+Can filter by: Batch, date range, score range
+Website - Submits to this table:
+Page: Test attempt page
+When: Student clicks "Submit" or timer expires
+Action:
+Calculate score from student_responses table
+If first attempt → INSERT
+If retake → UPDATE with new score and timestamp
+Website - Fetches from this table:
+Page: "Tests" section
+Displays: Student's score for each test they've attempted
+Page: Profile section (optional - show total tests attempted, average score)
+
+TABLE 10: doubts_classes
+Columns:
+- doubts_class_id (PRIMARY KEY, auto-increment)
+- date (DATE)
+- subject (maths/physics/chemistry/general)
+- teacher_name
+- class_title
+- time_slot (e.g., "6:00 PM - 7:30 PM")
+- google_meet_link
+- is_active (boolean)
+- created_at
+Admin Panel - Submits to this table:
+Page: "Doubts Classes" (admin panel)
+Inputs:
+Date (date picker)
+Subject (dropdown)
+Teacher name
+Class title
+Time slot
+Google Meet link
+Action: INSERT new row
+Admin Panel - Fetches from this table:
+Page: "Doubts Classes"
+Displays: List with Edit/Delete options
+Website - Fetches from this table:
+Page: "Doubts Classes" section (ONLY visible to Lakshya batch)
+Query: SELECT * FROM doubts_classes WHERE date >= TODAY() AND is_active = true ORDER BY date, time_slot
+Access Control: Check users.batch_id → if batch has has_doubts_access = false → Hide entire section
+
+🌐 COMPLETE PAGE LISTING
+MAIN WEBSITE PAGES (Student-Facing)
+1. Landing Page (Public - No Login Required)
+Fetches from:
+batches table → Display course cards with name, cost, duration, features
+Navigation: Home, About, Courses, Contact, Login
+CTA Buttons: "Buy Course" (each batch)
+
+2. Payment Page (Public - Before Login)
+URL: /payment?batch=lakshya
+Left Section - Form Fields:
+Student Name
+Phone Number
+Email
+Right Section - Fetches from:
+batches table → Show selected batch details (name, cost, duration)
+Submits to:
+payments table → After successful Razorpay payment
+Razorpay Integration:
+Creates order → Payment → Success → Insert into payments → Redirect
+
+3. Payment Success Page (Protected)
+URL: /payment-success?payment_id=xyz123
+Security: Verify payment_id exists in payments table and hasn't been shown before
+Displays:
+"Thank you for purchasing [Course Name]!"
+"You will receive a call within 2 hours for login details"
+Payment ID, Course details
+Action: Mark this payment as "success page shown" to prevent reuse
+
+4. Login Page (Public)
+Supabase Magic Link Login
+Input: Email
+Action: Sends magic link to email
+After Login: Redirect to Dashboard
+
+Purpose: Allow existing students to log back into their accounts
+Features:
+Email Input Field: Student enters their registered email
+Validation: System checks if email exists in users table BEFORE sending magic link
+Send Magic Link Button: Triggers magic link email (only if email is registered)
+
+
+5. Dashboard (Protected - Main Student Interface)
+Top Bar: Logo, Student name, Batch badge, Logout button
+Sidebar Navigation:
+My Classes
+Recorded Classes
+Tests
+Doubts Classes (only if batches.has_doubts_access = true)
+Profile
+
+6. My Classes Section (Protected)
+Fetches from:
+daily_classes table WHERE date = TODAY()
+Displays:
+3 cards (Maths, Physics, Chemistry)
+Each card: Teacher photo, subject, class title, duration, "Attend Class" button
+Button Action: Opens YouTube live link in new tab
+
+7. Recorded Classes Section (Protected)
+Filter: Date picker
+Fetches from:
+recorded_classes table WHERE date = SELECTED_DATE
+Displays:
+3 cards for selected date
+Each card: Teacher photo, subject, class title, duration, "Watch Recording" button
+Button Action: Opens YouTube video link
+
+8. Tests Section (Protected)
+Fetches from:
+exams table → List of all tests
+exam_attempts table WHERE user_id = CURRENT_USER → Get student's scores
+Displays:
+List of test cards
+Each card shows:
+Test name, date, duration, total questions
+Student's score (if attempted)
+Buttons:
+"Attempt Test" (if not attempted yet)
+"Retake Test" (if attempted)
+"View Result" (if attempted)
+
+9. Test Attempt Page (Protected - Subpage)
+URL: /test/:exam_id/attempt
+Fetches from:
+questions table WHERE exam_id = X
+student_responses table (if retaking, pre-fill previous answers)
+Features:
+Timer (180 minutes) at top
+Question navigation (1-160)
+Mark for review
+Submit button
+Auto-save answers every 30 seconds
+Submits to:
+student_responses table (INSERT or UPDATE on each answer selection)
+On Submit/Timer Expire:
+Calculate score
+Submit to exam_attempts table
+Redirect to "View Result" page
+
+10. View Result Page (Protected - Subpage)
+URL: /test/:exam_id/result
+Fetches from:
+exam_attempts table WHERE user_id = CURRENT_USER AND exam_id = X → Score
+student_responses + questions (JOIN) → All questions with student's answers and correct answers
+Displays:
+Score at top (e.g., "145/160")
+All 160 questions with:
+Question text
+Student's selected option (highlighted green if correct, red if wrong)
+Correct option (highlighted green)
+No option selected (grey if unanswered)
+
+11. Doubts Classes Section (Protected - Lakshya Only)
+Access Control:
+Check users.batch_id → Get batches.has_doubts_access
+If false → Show "Restricted Page" or hide from nav
+Fetches from:
+doubts_classes table WHERE date >= TODAY()
+Displays:
+Cards with date, time, subject, teacher, "Join Doubts Class" button
+Button Action: Opens Google Meet link
+
+12. Profile Section (Protected)
+Fetches from:
+users table → user_id, student_name, phone, email
+batches table (JOIN on batch_id) → batch_name, duration_months
+exam_attempts table → Total tests attempted, average score
+Displays:
+Personal Details: Name, Email, Phone, User ID
+Batch Details: Batch name, Duration, Start date
+Statistics: Tests attempted, Average score
+
+ADMIN PANEL PAGES
+1. Admin Login Page
+Separate admin authentication (Supabase Auth with admin role)
+Email/Password login (not magic link for admin)
+
+2. Admin Dashboard (Overview)
+Displays:
+Total students enrolled
+Total revenue (sum from payments)
+Today's classes count
+Pending batch allotments (payments where access_granted = false)
+Fetches from: All tables for statistics
+
+3. Manage Batches Page
+Fetches from:
+batches table → List all batches
+Displays:
+Table with batch_name, cost, duration, features, doubts_access
+Edit/Delete buttons
+Form to Add/Edit Batch:
+Batch name
+Cost
+Duration (months)
+Features (textarea)
+Has doubts access (checkbox)
+Submits to:
+batches table (INSERT or UPDATE)
+
+4. Student Payments Page
+Fetches from:
+payments table (JOIN batches) → All payment records
+Displays:
+Table with: Payment ID, Name, Email, Phone, Batch, Amount, Payment Status, Date, Access Granted
+Filter by: Date range, Batch, Payment status
+Action Button:
+"Mark as Contacted" (optional status update)
+
+5. Allot Batches Page
+Form Fields:
+Email (text input with autocomplete from payments table)
+Select Batch (dropdown fetches from batches table)
+"Provide Access" button
+On Submit:
+Create user in Supabase Auth with this email
+INSERT into users table (user_id from Auth, email, batch_id)
+Send magic link to email
+UPDATE payments table → Set access_granted = true
+(Optional) Add to YouTube channel members
+Displays Below Form:
+Table of all allotted students (fetch from users table)
+Shows: Name, Email, Batch, Date Allotted
+Edit/Suspend buttons
+
+6. All Students Page
+Fetches from:
+users table (JOIN batches)
+Displays:
+Table with: User ID, Name, Email, Batch, Phone, YouTube Added, Account Status, Last Login
+Search/Filter by: Batch, Status, Name/Email
+Actions:
+Edit student details
+Suspend/Activate account
+Resend magic link
+
+7. Daily Classes Page
+Top Section - Add New Class Form:
+Date (date picker, default today)
+Subject (dropdown: Maths/Physics/Chemistry)
+Teacher Name (text input)
+Teacher Photo (file upload)
+Class Title (text input)
+Duration (text input, e.g., "60 mins")
+YouTube Live Link (URL input)
+"Add Class" button
+Submits to:
+daily_classes table (INSERT)
+Upload teacher photo to Supabase Storage, store URL
+Bottom Section - List of Today's Classes:
+Fetches from: daily_classes table WHERE date = TODAY()
+Table with all columns, Edit/Delete buttons
+
+8. Recorded Classes Page
+Similar to Daily Classes
+Form Fields:
+Date (date picker)
+Subject
+Teacher Name
+Teacher Photo
+Class Title
+Duration
+YouTube Video Link (not live link)
+"Add Recording" button
+Submits to:
+recorded_classes table
+List Section:
+Filter by date range
+Table with Edit/Delete
+
+9. Tests Page
+Top Section - Create New Test:
+Exam Name
+Total Questions (default 160)
+Duration (default 180 mins)
+Maths Questions (default 80)
+Physics Questions (default 40)
+Chemistry Questions (default 40)
+Conducted Date
+"Create Test" button
+Submits to:
+exams table (INSERT)
+Bottom Section - List of Tests:
+Fetches from: exams table
+Table with: Exam Name, Date, Questions, Duration
+Action Buttons:
+"Add Questions" (goes to Add Questions page)
+"View Questions" (goes to Edit Questions page)
+"View Results" (goes to Test Results page)
+Delete Test
+
+10. Add Questions Page (For Specific Test)
+URL: /admin/tests/:exam_id/add-questions
+Option 1 - Bulk Upload (Recommended):
+Upload CSV file
+CSV Format: subject, question_number, question_text, option_a, option_b, option_c, option_d, correct_option
+"Upload Questions" button
+Submits to: questions table (Bulk INSERT 160 rows)
+Option 2 - Manual Entry:
+Form with 160 question inputs (tedious, not recommended)
+Each question: Subject, Question text, 4 options, Correct option
+"Save All Questions" button
+
+11. View/Edit Questions Page
+URL: /admin/tests/:exam_id/questions
+Fetches from:
+questions table WHERE exam_id = X
+Displays:
+Paginated list (10-20 questions per page)
+Each row: Question number, Subject, Question text (truncated), Options, Correct answer
+Edit/Delete buttons for each question
+Edit Form:
+Inline or modal to edit question details
+Submits to: questions table (UPDATE)
+
+12. Test Results Page (For Specific Test)
+URL: /admin/tests/:exam_id/results
+Fetches from:
+exam_attempts table WHERE exam_id = X (JOIN with users and batches)
+Displays:
+Table with: Student Name, Email, Batch, Score, Correct, Wrong, Unanswered, Submission Time
+Sort by: Score, Name, Batch
+Export to CSV button
+View individual student's detailed answers
+
+13. Doubts Classes Page
+Form to Add Doubts Class:
+Date
+Subject
+Teacher Name
+Class Title
+Time Slot (e.g., "6:00 PM - 7:30 PM")
+Google Meet Link
+"Add Doubts Class" button
+Submits to:
+doubts_classes table (INSERT)
+List Section:
+Fetches from: doubts_classes table
+Filter by date range
+Table with Edit/Delete
+
+14. Admin Settings Page
+Change admin password
+Manage admin users (if multiple admins in future)
+System settings
+
+SUMMARY TABLES
+Student Website Pages (12 pages)
+Landing Page
+Payment Page
+Payment Success Page
+Login Page
+Dashboard
+My Classes Section
+Recorded Classes Section
+Tests Section
+Test Attempt Page
+View Result Page
+Doubts Classes Section
+Profile Section
+Admin Panel Pages (14 pages)
+Admin Login
+Admin Dashboard
+Manage Batches
+Student Payments
+Allot Batches
+All Students
+Daily Classes
+Recorded Classes
+Tests
+Add Questions
+View/Edit Questions
+Test Results
+Doubts Classes
+Admin Settings
+Total Database Tables: 10
+batches
+payments
+users
+daily_classes
+recorded_classes
+exams
+questions
+student_responses
+exam_attempts
+doubts_classes
+
