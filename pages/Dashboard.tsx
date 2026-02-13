@@ -9,13 +9,16 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const checkAuth = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      // if (!user) {
-      //   navigate('/login');
-      //   return;
-      // }
+ useEffect(() => {
+  const checkAuth = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+
+    if (!session) {
+      navigate('/login');
+      return;
+    }
+
+    const user = session.user;  // ✅ ADD THIS LINE
 
       const { data, error } = await supabase
         .from('users')
@@ -23,10 +26,10 @@ const Dashboard: React.FC = () => {
         .eq('user_id', user.id)
         .single();
 
-      // if (error || !data) {
-      //   navigate('/login');
-      //   return;
-      // }
+       if (error || !data) {
+         navigate('/login');
+         return;
+      }
 
       setProfile(data);
       setLoading(false);
