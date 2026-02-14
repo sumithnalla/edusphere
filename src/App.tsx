@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react';
-import { supabase } from '../lib/supabase';
+import React from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Landing from '../pages/Landing';
 import Payment from '../pages/Payment';
@@ -11,21 +10,6 @@ import AdminDashboard from '../pages/AdminDashboard';
 import AllotBatches from '../pages/AllotBatches';
 
 const App: React.FC = () => {
-
-  useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (session) {
-          window.location.hash = '/dashboard';
-        }
-      }
-    );
-
-    return () => {
-      listener.subscription.unsubscribe();
-    };
-  }, []);
-
   return (
     <HashRouter>
       <Routes>
@@ -36,7 +20,7 @@ const App: React.FC = () => {
         <Route path="/login" element={<Login />} />
 
         {/* Student Routes */}
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard/*" element={<Dashboard />} />
 
         {/* Admin Routes */}
         <Route path="/admin/login" element={<AdminLogin />} />

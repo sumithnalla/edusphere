@@ -1,0 +1,137 @@
+Phase 1: Authentication + Payment + Foundation (8 pages) ✅ COMPLETED
+PUBLIC PAGES (3):
+Landing Page - Display batches, buy now buttons
+Payment Page - Form + Razorpay integration
+Payment Success Page - Confirmation message
+STUDENT PAGES (2): 4. Student Login - Magic link authentication 5. Student Dashboard - Protected home with sidebar navigation
+ADMIN PAGES (3): 6. Admin Login - Email/password authentication 7. Admin Dashboard - Statistics overview 8. Allot Batches - Grant student access + send magic links
+
+Phase 2: Student Learning Interface (4 pages)
+Focus: Students can access classes and content
+My Classes Section (/dashboard/classes)
+Fetch today's classes from daily_classes table
+3 cards: Maths, Physics, Chemistry with teacher info
+"Attend Class" buttons → YouTube live links
+Recorded Classes Section (/dashboard/recordings)
+Date picker filter
+Fetch from recorded_classes table
+Display 3 subject cards with "Watch Recording" buttons
+Doubts Classes Section (/dashboard/doubts)
+Conditional access - only if has_doubts_access = true
+Fetch upcoming sessions from doubts_classes table
+"Join Doubts Class" → Google Meet links
+Profile Section (/dashboard/profile)
+Display student details from users table
+Show batch info, statistics (tests attempted, avg score)
+
+Phase 3: Testing System (3 pages)
+Focus: Students can take and review exams
+Tests Section (/dashboard/tests)
+List all exams from exams table
+Show student's scores from exam_attempts
+Buttons: Attempt / Retake / View Result
+Test Attempt Page (/dashboard/test/:exam_id/attempt)
+Timer, question navigation (1-160)
+Fetch questions from questions table
+Auto-save to student_responses table
+Submit → Calculate score → Insert into exam_attempts
+View Result Page (/dashboard/test/:exam_id/result)
+Show score and detailed answers
+Fetch from student_responses + questions (JOIN)
+Highlight correct/wrong/unanswered
+
+Phase 4: Complete Admin Panel (11 pages)
+Focus: Full admin control over platform
+Manage Batches - CRUD for batch courses
+Student Payments - View all payment records
+All Students - Manage student accounts, suspend/activate
+Daily Classes - Add/Edit today's live classes
+Recorded Classes - Manage class recordings library
+Tests - Create new exams
+Add Questions - Bulk CSV upload or manual entry (160 questions)
+View/Edit Questions - Edit individual exam questions
+Test Results - View student performance analytics by exam
+Doubts Classes - Schedule doubts sessions
+Admin Settings - Admin account management
+
+
+
+
+Summary:
+Phase
+Focus
+Pages
+Key Features
+Phase 1 ✅
+Auth + Payment
+8
+Landing, Payment, Login, Dashboard shells
+Phase 2
+Student Content
+4
+Classes, Recordings, Doubts, Profile
+Phase 3
+Testing System
+3
+Exam attempt, results, scoring
+Phase 4
+Admin Complete
+11
+Full CRUD, analytics, content management
+
+Total: 26 pages
+
+
+Phase 4 Part 1: Essential Admin Operations (6 pages)
+These are CRITICAL - without them, admin can't run the platform
+Manage Batches
+CRUD for batch courses (Rankers/Sandana/Lakshya)
+Without this: Can't create/edit course offerings
+Student Payments
+View all payment records with filters
+Without this: Can't track revenue or pending payments
+All Students
+View/search all enrolled students
+Suspend/activate accounts
+Without this: Can't manage student access
+Daily Classes
+Schedule today's live classes (Maths/Physics/Chemistry)
+Without this: Students see empty "My Classes" section
+Tests
+Create new exams with basic details
+Without this: Students have no tests to attempt
+Add Questions
+Bulk CSV upload for 160 questions per exam
+Without this: Exams exist but have no questions
+
+Phase 4 Part 2: Advanced Admin Features (5 pages)
+These are NICE-TO-HAVE - platform works without them, just less convenient
+Recorded Classes
+Manage recordings library
+Why Part 2: Students already have live classes; recordings are supplementary
+View/Edit Questions
+Edit individual questions after bulk upload
+Why Part 2: Can fix errors by re-uploading CSV; editing UI is convenience
+Test Results
+Detailed analytics: scores by batch, export CSV
+Why Part 2: Students see their own results; admin analytics are bonus insights
+Doubts Classes
+Schedule doubts sessions (Lakshya only)
+Why Part 2: Only 1 of 3 batches needs this; not core to all students
+Admin Settings
+Change admin password, manage multiple admins
+Why Part 2: Single admin can manage via Supabase  dashboard initially
+Part 1 = "Can't operate without these"
+Need batches to sell courses
+Need to see payments to know who paid
+Need to allot access to students (already done in Phase 1)
+Need to schedule daily classes (core product)
+Need to create tests and add questions (core product)
+Part 2 = "Makes life easier but not blocking"
+Recordings are backup content
+Question editing can be done via re-upload
+Analytics are insights, not operations
+Doubts are premium feature for 1 batch
+Settings can be managed via Supabase initially
+
+
