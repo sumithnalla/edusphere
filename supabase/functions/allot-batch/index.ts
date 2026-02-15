@@ -31,13 +31,13 @@ serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { email, password, batch_id, student_name, phone, payment_id } = body;
+    const { payment_id, batch_id, password } = body;
 
-    if (!email || !password || !batch_id || !student_name || !phone) {
+    if (!payment_id || !batch_id || !password) {
       return new Response(
         JSON.stringify({
           success: false,
-          error: 'Missing required fields: email, password, batch_id, student_name, phone',
+          error: 'Missing required fields: payment_id, batch_id, password',
         }),
         {
           status: 400,
@@ -54,10 +54,10 @@ serve(async (req) => {
     }
 
     const batchIdNum = Number(batch_id);
-    const paymentIdNum = payment_id ? Number(payment_id) : null;
+    const paymentIdNum = Number(payment_id);
 
-    if (Number.isNaN(batchIdNum)) {
-      return new Response(JSON.stringify({ success: false, error: 'Invalid batch_id' }), {
+    if (Number.isNaN(batchIdNum) || Number.isNaN(paymentIdNum)) {
+      return new Response(JSON.stringify({ success: false, error: 'Invalid payment_id or batch_id' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -70,58 +70,34 @@ serve(async (req) => {
       },
     });
 
-    const { data: existingUser, error: checkError } = await supabase
-      .from('users')
-      .select('user_id')
-      .eq('email', email)
-      .maybeSingle();
+    const { data: paymentRow, error: paymentError } = await supabase
+      .from('payments')
+      .select('payment_id, student_name, phone, email, access_granted')
+      .eq('payment_id', paymentIdNum)
+      .single();
 
-    if (checkError) {
-      throw new Error(`Database error: ${checkError.message}`);
+    if (paymentError || !paymentRow) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Payment record not found for the given payment_id' }),
+        {
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
     }
 
-    if (existingUser) {
-      const { error: updateUserError } = await supabase
-        .from('users')
-        .update({
-          batch_id: batchIdNum,
-          payment_id: paymentIdNum,
-          student_name,
-          phone,
-        })
-        .eq('user_id', existingUser.user_id);
-
-      if (updateUserError) {
-        throw new Error(`Failed to update student profile: ${updateUserError.message}`);
-      }
-
-      const { error: updatePasswordError } = await supabase.auth.admin.updateUserById(existingUser.user_id, {
-        password,
-      });
-
-      if (updatePasswordError) {
-        throw new Error(`Failed to update password: ${updatePasswordError.message}`);
-      }
-
-      if (paymentIdNum) {
-        const { error: updatePaymentError } = await supabase
-          .from('payments')
-          .update({ access_granted: true })
-          .eq('payment_id', paymentIdNum);
-
-        if (updatePaymentError) {
-          throw new Error(`Failed to update payment access: ${updatePaymentError.message}`);
-        }
-      }
-
+    if (paymentRow.access_granted) {
       return new Response(
-        JSON.stringify({ success: true, message: 'Existing student updated with password access' }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({ success: false, error: 'Access already granted for this payment' }),
+        {
+          status: 409,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
       );
     }
 
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-      email,
+      email: paymentRow.email,
       password,
       email_confirm: true,
       user_metadata: { role: 'student' },
@@ -133,11 +109,11 @@ serve(async (req) => {
 
     const { error: insertUserError } = await supabase.from('users').insert({
       user_id: authData.user.id,
-      email,
-      student_name,
-      phone,
+      email: paymentRow.email,
+      student_name: paymentRow.student_name,
+      phone: paymentRow.phone,
       batch_id: batchIdNum,
-      payment_id: paymentIdNum,
+      payment_id: paymentRow.payment_id,
       account_status: 'active',
       youtube_channel_added: false,
     });
@@ -147,22 +123,20 @@ serve(async (req) => {
       throw new Error(`Failed to create user profile: ${insertUserError.message}`);
     }
 
-    if (paymentIdNum) {
-      const { error: updatePaymentError } = await supabase
-        .from('payments')
-        .update({ access_granted: true })
-        .eq('payment_id', paymentIdNum);
+    const { error: updatePaymentError } = await supabase
+      .from('payments')
+      .update({ access_granted: true, batch_id: batchIdNum })
+      .eq('payment_id', paymentIdNum);
 
-      if (updatePaymentError) {
-        throw new Error(`Failed to update payment access: ${updatePaymentError.message}`);
-      }
+    if (updatePaymentError) {
+      throw new Error(`Failed to update payment access: ${updatePaymentError.message}`);
     }
 
     return new Response(
       JSON.stringify({
         success: true,
         user_id: authData.user.id,
-        message: 'Student created with password login access',
+        message: 'Student created and access granted successfully',
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );

@@ -14,12 +14,9 @@ const AllotBatches: React.FC = () => {
   const navigate = useNavigate();
 
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
-    student_name: '',
-    phone: '',
-    batch_id: '',
     payment_id: '',
+    password: '',
+    batch_id: '',
   });
 
   const loadData = async () => {
@@ -53,18 +50,8 @@ const AllotBatches: React.FC = () => {
     setErrorMessage('');
 
     try {
-      if (!formData.email || !formData.password || !formData.student_name || !formData.phone || !formData.batch_id) {
+      if (!formData.payment_id || !formData.password || !formData.batch_id) {
         throw new Error('Please fill in all required fields');
-      }
-
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(formData.email.trim())) {
-        throw new Error('Please enter a valid email address');
-      }
-
-      const phoneRegex = /^\d{10}$/;
-      if (!phoneRegex.test(formData.phone.trim())) {
-        throw new Error('Please enter a valid 10-digit phone number');
       }
 
       if (formData.password.length < 6) {
@@ -72,12 +59,9 @@ const AllotBatches: React.FC = () => {
       }
 
       const payload = {
-        email: formData.email.trim().toLowerCase(),
+        payment_id: Number(formData.payment_id),
         password: formData.password,
-        student_name: formData.student_name.trim(),
-        phone: formData.phone.trim(),
         batch_id: Number(formData.batch_id),
-        payment_id: formData.payment_id ? Number(formData.payment_id) : null,
       };
 
       const {
@@ -92,6 +76,22 @@ const AllotBatches: React.FC = () => {
       });
 
       if (error) {
+        const anyErr: any = error;
+        const bodyText =
+          anyErr?.context?.body ||
+          anyErr?.context?.response?.body ||
+          anyErr?.body ||
+          null;
+
+        if (typeof bodyText === 'string') {
+          try {
+            const parsed = JSON.parse(bodyText);
+            throw new Error(parsed?.error || error.message);
+          } catch {
+            throw new Error(bodyText || error.message);
+          }
+        }
+
         throw new Error(error.message);
       }
 
@@ -102,12 +102,9 @@ const AllotBatches: React.FC = () => {
       alert('Batch allotted successfully. Student can login with email and password.');
 
       setFormData({
-        email: '',
-        password: '',
-        student_name: '',
-        phone: '',
-        batch_id: '',
         payment_id: '',
+        password: '',
+        batch_id: '',
       });
 
       await loadData();
@@ -122,12 +119,9 @@ const AllotBatches: React.FC = () => {
 
   const selectPending = (payment: Payment) => {
     setFormData({
-      email: payment.email,
-      password: '',
-      student_name: payment.student_name,
-      phone: payment.phone,
-      batch_id: payment.batch_id.toString(),
       payment_id: payment.payment_id.toString(),
+      password: '',
+      batch_id: payment.batch_id.toString(),
     });
     setErrorMessage('');
   };
@@ -186,15 +180,16 @@ const AllotBatches: React.FC = () => {
               <form onSubmit={handleAllot} className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-sm font-bold text-gray-600 mb-2">
-                    Student Email <span className="text-red-500">*</span>
+                    Payment ID <span className="text-red-500">*</span>
                   </label>
                   <input
                     required
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    type="number"
+                    min={1}
+                    value={formData.payment_id}
+                    onChange={(e) => setFormData({ ...formData, payment_id: e.target.value })}
                     className="w-full border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    placeholder="student@gmail.com"
+                    placeholder="Select from pending list"
                   />
                 </div>
 
@@ -214,36 +209,6 @@ const AllotBatches: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">
-                    Student Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    required
-                    type="text"
-                    value={formData.student_name}
-                    onChange={(e) => setFormData({ ...formData, student_name: e.target.value })}
-                    className="w-full border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    placeholder="Full Name"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-bold text-gray-600 mb-2">
-                    Phone <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    required
-                    type="tel"
-                    pattern="[0-9]{10}"
-                    maxLength={10}
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full border border-gray-300 p-3 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    placeholder="10 digit phone"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
                   <label className="block text-sm font-bold text-gray-600 mb-2">
                     Select Batch <span className="text-red-500">*</span>
                   </label>
