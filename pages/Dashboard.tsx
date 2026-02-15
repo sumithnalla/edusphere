@@ -2,6 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { UserProfile } from '../types/database';
+import TestsSection from './tests/TestsSection';
+import TestAttemptPage from './tests/TestAttemptPage';
+import TestResultPage from './tests/TestResultPage';
 
 type Subject = 'maths' | 'physics' | 'chemistry';
 
@@ -49,6 +52,9 @@ const getTodayISO = () => new Date().toISOString().split('T')[0];
 const formatSubject = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 const getRouteTitle = (pathname: string) => {
+  if (pathname.includes('/test/') && pathname.includes('/attempt')) return 'Test Attempt';
+  if (pathname.includes('/test/') && pathname.includes('/result')) return 'Test Result';
+  if (pathname.includes('/tests')) return 'Tests';
   if (pathname.includes('/recordings')) return 'Recorded Classes';
   if (pathname.includes('/doubts')) return 'Doubts Classes';
   if (pathname.includes('/profile')) return 'Profile';
@@ -144,6 +150,9 @@ const Dashboard: React.FC = () => {
           <NavLink to="/dashboard/recordings" className={navClass}>
             Recorded Classes
           </NavLink>
+          <NavLink to="/dashboard/tests" className={navClass}>
+            Tests
+          </NavLink>
           {hasDoubtsAccess && (
             <NavLink to="/dashboard/doubts" className={navClass}>
               Doubts Classes
@@ -176,6 +185,9 @@ const Dashboard: React.FC = () => {
             <Route index element={<Navigate to="classes" replace />} />
             <Route path="classes" element={<MyClassesSection />} />
             <Route path="recordings" element={<RecordedClassesSection />} />
+            <Route path="tests" element={<TestsSection userId={profile.user_id} />} />
+            <Route path="test/:examId/attempt" element={<TestAttemptPage userId={profile.user_id} />} />
+            <Route path="test/:examId/result" element={<TestResultPage userId={profile.user_id} />} />
             <Route path="doubts" element={<DoubtsClassesSection hasDoubtsAccess={hasDoubtsAccess} />} />
             <Route path="profile" element={<ProfileSection profile={profile} />} />
             <Route path="*" element={<Navigate to="classes" replace />} />
